@@ -1,0 +1,12 @@
+{
+  "appId": "com.vidcrew.meet",
+  "appName": "Vidcrew Meet",
+  "webDir": "src",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
