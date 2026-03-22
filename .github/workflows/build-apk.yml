@@ -8,99 +8,77 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install dependencies
+      - name: Install deps
         run: npm install
 
-      - name: Build web assets
-        run: |
-          mkdir -p dist
-          cp src/index.html dist/index.html
+      - name: Build web
+        run: mkdir -p dist && cp src/index.html dist/index.html
 
-      - name: Install Capacitor CLI
+      - name: Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      - name: Add and Sync Capacitor Android
-        run: |
-          npx cap add android
-          npx cap sync android
-- name: Add permissions to AndroidManifest
-        run: |
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />|' "$MANIFEST"
-          echo "✅ Permissions added"
-      - name: Inject MainActivity with AndroidBridge
-        run: |
-          DEST="android/app/src/main/java/com/vidcrew/meet"
-          mkdir -p "$DEST"
-          cp android-src/MainActivity.java "$DEST/MainActivity.java"
-          echo "✅ MainActivity.java injected"
+      - name: Add and sync Android
+        run: npx cap add android && npx cap sync android
 
-      - name: Install sharp for icon resizing
-        run: npm install sharp 2>/dev/null || true
-
-      - name: Place icons in mipmap folders
+      - name: Add permissions
         run: |
+          python3 << 'EOF'
+          f = open('android/app/src/main/AndroidManifest.xml', 'r')
+          c = f.read()
+          f.close()
+          extra = '    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n'
+          c = c.replace('<uses-permission android:name="android.permission.INTERNET" />', '<uses-permission android:name="android.permission.INTERNET" />\n' + extra)
+          f = open('android/app/src/main/AndroidManifest.xml', 'w')
+          f.write(c)
+          f.close()
+          print('Done')
+          EOF
+
+      - name: Inject MainActivity
+        run: |
+          mkdir -p android/app/src/main/java/com/vidcrew/meet
+          cp android-src/MainActivity.java android/app/src/main/java/com/vidcrew/meet/MainActivity.java
+
+      - name: Icons
+        run: |
+          npm install sharp 2>/dev/null || true
           node -e "
-            const fs = require('fs');
-            const path = require('path');
-            let sharp;
-            try { sharp = require('sharp'); } catch(e) { sharp = null; }
-            const src = 'src/icon.png';
-            if (!fs.existsSync(src)) { console.log('No icon.png, skipping'); process.exit(0); }
-            const sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192};
-            const base = 'android/app/src/main/res';
-            Object.entries(sizes).forEach(([folder, size]) => {
-              const dir = path.join(base, folder);
-              if (!fs.existsSync(dir)) return;
-              const dest = path.join(dir, 'ic_launcher.png');
-              const destR = path.join(dir, 'ic_launcher_round.png');
-              if (sharp) {
-                sharp(src).resize(size,size).toFile(dest, e => e && console.error(e));
-                sharp(src).resize(size,size).toFile(destR, e => e && console.error(e));
-              } else {
-                fs.copyFileSync(src, dest);
-                fs.copyFileSync(src, destR);
-              }
-            });
-            console.log('Icons placed.');
+          const fs=require('fs'),path=require('path');
+          let sharp;try{sharp=require('sharp');}catch(e){sharp=null;}
+          const src='src/icon.png';
+          if(!fs.existsSync(src)){process.exit(0);}
+          const sizes={'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192};
+          const base='android/app/src/main/res';
+          Object.entries(sizes).forEach(([folder,size])=>{
+            const dir=path.join(base,folder);
+            if(!fs.existsSync(dir))return;
+            if(sharp){sharp(src).resize(size,size).toFile(path.join(dir,'ic_launcher.png'),e=>e&&console.error(e));sharp(src).resize(size,size).toFile(path.join(dir,'ic_launcher_round.png'),e=>e&&console.error(e));}
+            else{fs.copyFileSync(src,path.join(dir,'ic_launcher.png'));fs.copyFileSync(src,path.join(dir,'ic_launcher_round.png'));}
+          });
+          console.log('Icons done');
           " 2>/dev/null || true
 
-      - name: Set up Gradle permissions
+      - name: Gradle permissions
         run: chmod +x android/gradlew
 
-      - name: Build debug APK
+      - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: vidcrew-meet-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
-
-      - name: Show APK info
-        run: |
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-          if [ -f "$APK" ]; then
-            echo "✅ APK built: $(du -h $APK | cut -f1)"
-          else
-            echo "❌ APK not found"
-            exit 1
-          fi
