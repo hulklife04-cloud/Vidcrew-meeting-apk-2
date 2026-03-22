@@ -1,0 +1,100 @@
+name: Build Vidcrew Meet APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build web assets
+        run: |
+          mkdir -p dist
+          cp src/index.html dist/index.html
+
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Inject MainActivity with AndroidBridge
+        run: |
+          DEST="android/app/src/main/java/com/vidcrew/meet"
+          mkdir -p "$DEST"
+          cp android-src/MainActivity.java "$DEST/MainActivity.java"
+          echo "✅ MainActivity.java injected"
+
+      - name: Install sharp for icon resizing
+        run: npm install sharp 2>/dev/null || true
+
+      - name: Place icons in mipmap folders
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            let sharp;
+            try { sharp = require('sharp'); } catch(e) { sharp = null; }
+            const src = 'src/icon.png';
+            if (!fs.existsSync(src)) { console.log('No icon.png, skipping'); process.exit(0); }
+            const sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192};
+            const base = 'android/app/src/main/res';
+            Object.entries(sizes).forEach(([folder, size]) => {
+              const dir = path.join(base, folder);
+              if (!fs.existsSync(dir)) return;
+              const dest = path.join(dir, 'ic_launcher.png');
+              const destR = path.join(dir, 'ic_launcher_round.png');
+              if (sharp) {
+                sharp(src).resize(size,size).toFile(dest, e => e && console.error(e));
+                sharp(src).resize(size,size).toFile(destR, e => e && console.error(e));
+              } else {
+                fs.copyFileSync(src, dest);
+                fs.copyFileSync(src, destR);
+              }
+            });
+            console.log('Icons placed.');
+          " 2>/dev/null || true
+
+      - name: Set up Gradle permissions
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcrew-meet-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Show APK info
+        run: |
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK" ]; then
+            echo "✅ APK built: $(du -h $APK | cut -f1)"
+          else
+            echo "❌ APK not found"
+            exit 1
+          fi
