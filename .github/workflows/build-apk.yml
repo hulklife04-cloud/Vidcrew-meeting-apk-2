@@ -35,8 +35,10 @@ jobs:
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      - name: Sync Capacitor
-        run: npx cap sync android
+      - name: Add and Sync Capacitor Android
+        run: |
+          npx cap add android
+          npx cap sync android
 
       - name: Inject MainActivity with AndroidBridge
         run: |
