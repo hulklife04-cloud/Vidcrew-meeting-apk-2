@@ -1,0 +1,145 @@
+name: Build Vidcrew Meet APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build web assets
+        run: |
+          mkdir -p dist
+          cp src/index.html dist/index.html
+
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
+
+      # Use the real Vidcrew logo from src/icon.png
+      # Generate all required icon sizes using @capacitor/assets (no ImageMagick needed)
+      - name: Prepare icons from src/icon.png
+        run: |
+          # @capacitor/assets expects assets/icon-only.png and assets/icon-background.png
+          mkdir -p assets
+          cp src/icon.png assets/icon-only.png
+          # Create a simple dark background PNG for adaptive icon using Node
+          node -e "
+            const { createCanvas } = require('canvas');
+            const canvas = createCanvas(1024, 1024);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#070707';
+            ctx.fillRect(0, 0, 1024, 1024);
+            require('fs').writeFileSync('assets/icon-background.png', canvas.toBuffer('image/png'));
+            // Also create a splash screen
+            const splash = createCanvas(2732, 2732);
+            const sc = splash.getContext('2d');
+            sc.fillStyle = '#070707';
+            sc.fillRect(0, 0, 2732, 2732);
+            require('fs').writeFileSync('assets/splash.png', splash.toBuffer('image/png'));
+            console.log('Icon assets created.');
+          " 2>/dev/null || true
+          # Fallback: copy icon to all mipmap folders manually using sharp or cp
+          ls assets/
+
+      - name: Install canvas for icon generation (optional fallback)
+        run: npm install canvas 2>/dev/null || true
+
+      - name: Generate Capacitor assets
+        run: |
+          npm install @capacitor/assets 2>/dev/null || true
+          npx @capacitor/assets generate 2>/dev/null || echo "capacitor/assets failed, will use manual copy"
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Inject MainActivity with AndroidBridge (screen share)
+        run: |
+          DEST="android/app/src/main/java/com/vidcrew/meet"
+          mkdir -p "$DEST"
+          cp android-src/MainActivity.java "$DEST/MainActivity.java"
+          echo "✅ MainActivity.java injected"
+
+      - name: Manual icon copy to mipmap folders (ensures logo is used)
+        run: |
+          MIPMAP_DIR="android/app/src/main/res"
+          # Sizes: mdpi=48, hdpi=72, xhdpi=96, xxhdpi=144, xxxhdpi=192
+          declare -A SIZES=(
+            ["mipmap-mdpi"]=48
+            ["mipmap-hdpi"]=72
+            ["mipmap-xhdpi"]=96
+            ["mipmap-xxhdpi"]=144
+            ["mipmap-xxxhdpi"]=192
+          )
+          # Use Node + sharp to resize, or just copy as-is if sharp not available
+          npm install sharp 2>/dev/null || true
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            let sharp;
+            try { sharp = require('sharp'); } catch(e) { sharp = null; }
+            const src = 'src/icon.png';
+            const sizes = {
+              'mipmap-mdpi': 48, 'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96, 'mipmap-xxhdpi': 144, 'mipmap-xxxhdpi': 192
+            };
+            const base = 'android/app/src/main/res';
+            Object.entries(sizes).forEach(([folder, size]) => {
+              const dir = path.join(base, folder);
+              if (!fs.existsSync(dir)) return;
+              const dest = path.join(dir, 'ic_launcher.png');
+              const destRound = path.join(dir, 'ic_launcher_round.png');
+              if (sharp) {
+                sharp(src).resize(size, size).toFile(dest, e => e && console.error(e));
+                sharp(src).resize(size, size).toFile(destRound, e => e && console.error(e));
+              } else {
+                fs.copyFileSync(src, dest);
+                fs.copyFileSync(src, destRound);
+              }
+            });
+            console.log('Icons placed in mipmap folders.');
+          " 2>/dev/null || true
+
+      - name: Set up Gradle permissions
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vidcrew-meet-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+      - name: Show APK info
+        run: |
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ]; then
+            SIZE=$(du -h "$APK_PATH" | cut -f1)
+            echo "✅ APK built successfully: $SIZE"
+          else
+            echo "❌ APK not found"
+            exit 1
+          fi
