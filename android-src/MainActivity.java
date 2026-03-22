@@ -41,10 +41,11 @@ public class MainActivity extends BridgeActivity {
         projManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         frameHandler = new Handler(Looper.getMainLooper());
         bridge.getWebView().post(() -> {
-            bridge.getWebView().addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
-        });
+    WebView wv = bridge.getWebView();
+    wv.getSettings().setJavaScriptEnabled(true);
+    wv.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+});
     }
-
     public class AndroidBridge {
         @JavascriptInterface
         public void startCapture() {
