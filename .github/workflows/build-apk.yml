@@ -29,56 +29,190 @@ jobs:
       - name: Capacitor CLI
         run: npm install -g @capacitor/cli
 
-      - name: Add and sync Android
-        run: npx cap add android && npx cap sync android
+      - name: Add Android
+        run: npx cap add android
 
-      - name: Add permissions
+      - name: Patch AndroidManifest
         run: |
-          python3 << 'EOF'
-          f = open('android/app/src/main/AndroidManifest.xml', 'r')
-          c = f.read()
-          f.close()
-          extra = '    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />\n'
-          c = c.replace('<uses-permission android:name="android.permission.INTERNET" />', '<uses-permission android:name="android.permission.INTERNET" />\n' + extra)
-          f = open('android/app/src/main/AndroidManifest.xml', 'w')
-          f.write(c)
-          f.close()
-          print('Done')
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          sed -i 's|</manifest>|    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>\n</manifest>|' "$MANIFEST"
+
+      - name: Patch strings.xml
+        run: |
+          cat > android/app/src/main/res/values/strings.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Vidcrew Meet</string>
+              <string name="title_activity_main">Vidcrew Meet</string>
+              <string name="package_name">com.vidcrew.meet</string>
+              <string name="custom_url_scheme">com.vidcrew.meet</string>
+          </resources>
           EOF
 
-      - name: Inject MainActivity
+      - name: Patch MainActivity
         run: |
-          mkdir -p android/app/src/main/java/com/vidcrew/meet
-          cp android-src/MainActivity.java android/app/src/main/java/com/vidcrew/meet/MainActivity.java
+          cat > android/app/src/main/java/com/vidcrew/meet/MainActivity.java << 'EOF'
+          package com.vidcrew.meet;
+          import android.app.Activity;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.graphics.PixelFormat;
+          import android.hardware.display.DisplayManager;
+          import android.hardware.display.VirtualDisplay;
+          import android.media.Image;
+          import android.media.ImageReader;
+          import android.media.projection.MediaProjection;
+          import android.media.projection.MediaProjectionManager;
+          import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.util.Base64;
+          import android.util.DisplayMetrics;
+          import android.view.View;
+          import android.view.WindowManager;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import com.getcapacitor.BridgeActivity;
+          import java.io.ByteArrayOutputStream;
+          import java.nio.ByteBuffer;
+          public class MainActivity extends BridgeActivity {
+            private static final int SCREEN_CAPTURE_REQUEST_CODE = 1001;
+            private MediaProjectionManager projectionManager;
+            private MediaProjection mediaProjection;
+            private VirtualDisplay virtualDisplay;
+            private ImageReader imageReader;
+            private Handler handler;
+            private boolean capturing = false;
+            private WebView webView;
+            @Override
+            public void onCreate(Bundle savedInstanceState) {
+              super.onCreate(savedInstanceState);
+              setTitle("Vidcrew Meet");
+              webView = getBridge().getWebView();
+              WebSettings settings = webView.getSettings();
+              settings.setMediaPlaybackRequiresUserGesture(false);
+              settings.setAllowFileAccess(true);
+              settings.setAllowContentAccess(true);
+              settings.setJavaScriptEnabled(true);
+              webView.addJavascriptInterface(new Object() {
+                @android.webkit.JavascriptInterface
+                public void startCapture() {
+                  runOnUiThread(() -> {
+                    projectionManager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+                    Intent intent = projectionManager.createScreenCaptureIntent();
+                    startActivityForResult(intent, SCREEN_CAPTURE_REQUEST_CODE);
+                  });
+                }
+                @android.webkit.JavascriptInterface
+                public void stopCapture() {
+                  capturing = false;
+                  if (virtualDisplay != null) { virtualDisplay.release(); virtualDisplay = null; }
+                  if (mediaProjection != null) { mediaProjection.stop(); mediaProjection = null; }
+                  if (imageReader != null) { imageReader.close(); imageReader = null; }
+                  runOnUiThread(() -> webView.evaluateJavascript("window._onScreenStopped&&window._onScreenStopped()", null));
+                }
+              }, "AndroidBridge");
+              webView.setWebChromeClient(new WebChromeClient() {
+                @Override
+                public void onPermissionRequest(PermissionRequest request) {
+                  runOnUiThread(() -> request.grant(request.getResources()));
+                }
+              });
+            }
+            @Override
+            protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+              super.onActivityResult(requestCode, resultCode, data);
+              if (requestCode == SCREEN_CAPTURE_REQUEST_CODE) {
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                  mediaProjection = projectionManager.getMediaProjection(resultCode, data);
+                  setupCapture();
+                } else {
+                  webView.evaluateJavascript("window._onScreenDenied&&window._onScreenDenied()", null);
+                }
+              }
+            }
+            private void setupCapture() {
+              DisplayMetrics metrics = new DisplayMetrics();
+              ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getMetrics(metrics);
+              int w = metrics.widthPixels / 2;
+              int h = metrics.heightPixels / 2;
+              int dpi = metrics.densityDpi;
+              imageReader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
+              virtualDisplay = mediaProjection.createVirtualDisplay("VidcrewCapture", w, h, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, imageReader.getSurface(), null, null);
+              capturing = true;
+              handler = new Handler(Looper.getMainLooper());
+              webView.evaluateJavascript("window._onScreenStarted&&window._onScreenStarted(" + w + "," + h + ")", null);
+              scheduleCapture();
+            }
+            private void scheduleCapture() {
+              if (!capturing) return;
+              handler.postDelayed(() -> { sendFrame(); scheduleCapture(); }, 150);
+            }
+            private void sendFrame() {
+              if (imageReader == null || !capturing) return;
+              Image image = imageReader.acquireLatestImage();
+              if (image == null) return;
+              try {
+                Image.Plane[] planes = image.getPlanes();
+                ByteBuffer buffer = planes[0].getBuffer();
+                int w = image.getWidth(), h = image.getHeight();
+                int rowPad = planes[0].getRowStride() - planes[0].getPixelStride() * w;
+                Bitmap bmp = Bitmap.createBitmap(w + rowPad / planes[0].getPixelStride(), h, Bitmap.Config.ARGB_8888);
+                bmp.copyPixelsFromBuffer(buffer);
+                Bitmap cropped = Bitmap.createBitmap(bmp, 0, 0, w, h);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                cropped.compress(Bitmap.CompressFormat.JPEG, 30, baos);
+                String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                final String js = "window._onScreenFrame&&window._onScreenFrame('" + b64 + "')";
+                runOnUiThread(() -> webView.evaluateJavascript(js, null));
+                bmp.recycle(); cropped.recycle();
+              } catch (Exception e) { } finally { image.close(); }
+            }
+          }
+          EOF
+      - name: Sync Capacitor
+        run: npx cap sync android
 
-      - name: Icons
+      - name: Patch SDK versions
         run: |
-          npm install sharp 2>/dev/null || true
-          node -e "
-          const fs=require('fs'),path=require('path');
-          let sharp;try{sharp=require('sharp');}catch(e){sharp=null;}
-          const src='src/icon.png';
-          if(!fs.existsSync(src)){process.exit(0);}
-          const sizes={'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192};
-          const base='android/app/src/main/res';
-          Object.entries(sizes).forEach(([folder,size])=>{
-            const dir=path.join(base,folder);
-            if(!fs.existsSync(dir))return;
-            if(sharp){sharp(src).resize(size,size).toFile(path.join(dir,'ic_launcher.png'),e=>e&&console.error(e));sharp(src).resize(size,size).toFile(path.join(dir,'ic_launcher_round.png'),e=>e&&console.error(e));}
-            else{fs.copyFileSync(src,path.join(dir,'ic_launcher.png'));fs.copyFileSync(src,path.join(dir,'ic_launcher_round.png'));}
-          });
-          console.log('Icons done');
-          " 2>/dev/null || true
+          cd android
+          sed -i 's/minSdk = [0-9]*/minSdk = 24/' app/build.gradle
+          sed -i 's/targetSdk = [0-9]*/targetSdk = 35/' app/build.gradle
+          sed -i 's/compileSdk = [0-9]*/compileSdk = 35/' app/build.gradle
 
-      - name: Gradle permissions
+      - name: Generate icon
+        run: |
+          sudo apt-get install -y imagemagick
+          convert -size 1024x1024 xc:"#0c0c0e" \
+            -fill "#E63B2E" \
+            -draw "roundrectangle 50,50 974,974 160,160" \
+            -font DejaVu-Sans-Bold -pointsize 500 \
+            -fill white -gravity Center \
+            -draw "text 0,0 'VC'" \
+            /tmp/icon.png
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            case $density in
+              mdpi) size=48;; hdpi) size=72;; xhdpi) size=96;; xxhdpi) size=144;; xxxhdpi) size=192;;
+            esac
+            mkdir -p android/app/src/main/res/mipmap-${density}
+            convert /tmp/icon.png -resize ${size}x${size} android/app/src/main/res/mipmap-${density}/ic_launcher.png
+            convert /tmp/icon.png -resize ${size}x${size} android/app/src/main/res/mipmap-${density}/ic_launcher_round.png
+          done
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          printf '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@mipmap/ic_launcher"/><foreground android:drawable="@mipmap/ic_launcher"/></adaptive-icon>' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          printf '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@mipmap/ic_launcher_round"/><foreground android:drawable="@mipmap/ic_launcher_round"/></adaptive-icon>' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+      - name: Grant gradlew permission
         run: chmod +x android/gradlew
 
-      - name: Build APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build Debug APK
+        run: cd android && ./gradlew assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
-          name: vidcrew-meet-debug
+          name: vidcrew-meet-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          retention-days: 7
