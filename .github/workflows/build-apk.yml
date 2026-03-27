@@ -116,18 +116,18 @@ jobs:
                 }
               }, "AndroidBridge");
               webView.setWebChromeClient(new WebChromeClient() {
-  @Override
-  public void onPermissionRequest(PermissionRequest request) {
-    request.grant(request.getResources());
-  }
-});
-if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-  requestPermissions(new String[]{
-    android.Manifest.permission.CAMERA,
-    android.Manifest.permission.RECORD_AUDIO,
-    android.Manifest.permission.MODIFY_AUDIO_SETTINGS
-  }, 100);
-}
+                @Override
+                public void onPermissionRequest(PermissionRequest request) {
+                  request.grant(request.getResources());
+                }
+              });
+              if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                requestPermissions(new String[]{
+                  android.Manifest.permission.CAMERA,
+                  android.Manifest.permission.RECORD_AUDIO,
+                  android.Manifest.permission.MODIFY_AUDIO_SETTINGS
+                }, 100);
+              }
             }
             @Override
             protected void onActivityResult(int requestCode, int resultCode, Intent data) {
