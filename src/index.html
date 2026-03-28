@@ -360,6 +360,8 @@ function startSharing(stream){
   t.querySelector('.tav').style.display='none';t.querySelector('.sbadge').style.display='block';
   updateGrid();scrOn=true;document.getElementById('bscr').classList.add('on');
   bcast({type:'screen-start',name:me});toast('Screen sharing started');
+const screenTrack=stream.getVideoTracks()[0];
+if(screenTrack){peers.forEach((p)=>{if(p.call&&p.call.peerConnection){const sender=p.call.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');if(sender)sender.replaceTrack(screenTrack);}});}
   if(stream.getVideoTracks&&stream.getVideoTracks().length)
     stream.getVideoTracks()[0].onended=()=>{if(scrOn)stopScreen();};
 }
@@ -389,7 +391,8 @@ function stopScreen(){
   if(scrStream){scrStream.getTracks().forEach(t=>t.stop());scrStream=null;}
   const t=tiles.get('screen');if(t)t.remove();tiles.delete('screen');
   scrOn=false;document.getElementById('bscr').classList.remove('on');
-  bcast({type:'screen-stop'});updateGrid();toast('Screen share stopped');
+  if(ls){const camTrack=ls.getVideoTracks()[0];if(camTrack){peers.forEach((p)=>{if(p.call&&p.call.peerConnection){const sender=p.call.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');if(sender)sender.replaceTrack(camTrack);}});}}
+bcast({type:'screen-stop'});updateGrid();
 }
 function getMime(){const ts=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'];for(const t of ts)if(typeof MediaRecorder!=='undefined'&&MediaRecorder.isTypeSupported(t))return t;return '';}
 async function togRec(){
