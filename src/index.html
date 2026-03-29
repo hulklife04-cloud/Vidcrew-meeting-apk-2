@@ -345,13 +345,26 @@ function togMic(){
   document.getElementById('bmic').classList.toggle('off',!micOn);
   const m=document.getElementById('mb-local');if(m)m.style.display=micOn?'none':'flex';
 }
-function togCam(){
-  if(!ls)return;camOn=!camOn;ls.getVideoTracks().forEach(t=>t.enabled=camOn);
+async function togCam(){
+  if(!ls)return;
+  if(scrOn){
+    try{
+      const facing=camOn?'environment':'user';
+      const newStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:false});
+      const newTrack=newStream.getVideoTracks()[0];
+      ls.getVideoTracks().forEach(t=>t.stop());
+      ls.removeTrack(ls.getVideoTracks()[0]);
+      ls.addTrack(newTrack);
+      const t=tiles.get('local');if(t){const v=t.querySelector('video');v.srcObject=ls;}
+    }catch(e){toast('Camera switch failed');}
+    return;
+  }
+  camOn=!camOn;ls.getVideoTracks().forEach(t=>t.enabled=camOn);
   document.getElementById('bcam').classList.toggle('off',!camOn);
   const t=tiles.get('local');if(!t)return;
   const v=t.querySelector('video'),av=t.querySelector('.tav');
   v.style.display=camOn?'block':'none';av.style.display=camOn?'none':'flex';
-}
+  }
 function startSharing(stream){
   scrStream=stream;
   const t=mkTile('screen','My Screen',role,false);
