@@ -346,6 +346,22 @@ function togMic(){
   document.getElementById('bmic').classList.toggle('off',!micOn);
   const m=document.getElementById('mb-local');if(m)m.style.display=micOn?'none':'flex';
 }
+  async function flipCam(){
+  if(!ls)return;
+  try{
+    const cur=ls.getVideoTracks()[0];
+    const facing=cur?cur.getSettings().facingMode:'user';
+    const newFace=facing==='user'?'environment':'user';
+    const ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:newFace},audio:false});
+    const nt=ns.getVideoTracks()[0];
+    ls.getVideoTracks().forEach(t=>t.stop());
+    peers.forEach(p=>{if(p.call&&p.call.peerConnection){const s=p.call.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');if(s)s.replaceTrack(nt);}});
+    const old=ls.getVideoTracks()[0];if(old)ls.removeTrack(old);
+    ls.addTrack(nt);
+    const t=tiles.get('local');if(t)t.querySelector('video').srcObject=ls;
+    toast('Camera flipped');
+  }catch(e){toast('Flip failed');}
+  }
 async function togCam(){
   if(!ls)return;
   if(scrOn){
