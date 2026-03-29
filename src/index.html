@@ -165,7 +165,6 @@ select.li option{background:var(--bg3);}
     <div class="twrap"><button class="tbtn" id="bmic" onclick="togMic()" title="Mic"><svg id="imic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg></button></div>
     <div class="twrap"><button class="tbtn" id="bcam" onclick="togCam()" title="Camera"><svg viewBox="0 0 24 24"><path d="M17 7H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M23 7l-6 5 6 5V7z"/></svg></button></div>
     <div class="twrap"><button class="tbtn" id="bscr" onclick="togScreen()" title="Screen Share"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/><polyline points="9 8 12 5 15 8"/><line x1="12" y1="5" x2="12" y2="13"/></svg></button></div>
-    <div class="twrap"><button class="tbtn" id="bflip" onclick="flipCam()" title="Flip Camera"><svg viewBox="0 0 24 24"><path d="M20 7h-9m9 0l-3-3m3 3l-3 3M4 17h9m-9 0l3 3m-3-3l3-3"/></svg></button></div>
     <div class="twrap"><button class="tbtn" id="brec" onclick="togRec()" title="Record"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/></svg></button></div>
     <div class="twrap"><button class="tbtn" id="bchat" onclick="togPanel('chat')" title="Chat"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button><div class="ubadge" id="cbadge">0</div></div>
     <div class="twrap"><button class="tbtn" onclick="togPanel('people')" title="People"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></button></div>
@@ -179,7 +178,10 @@ select.li option{background:var(--bg3);}
 </div>
 <div class="spanel" id="people-panel">
   <div class="phdr"><h3><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>People</h3><button class="cbtn" onclick="togPanel('people')">✕</button></div>
-  <div id="plist"></div>
+  <div style="padding:11px;border-bottom:1px solid var(--border);flex-shrink:0;">
+<button class="btn btn-s" onclick="flipCam()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2"><path d="M20 7h-9m9 0l-3-3m3 3l-3 3M4 17h9m-9 0l3 3m-3-3l3-3"/></svg>Flip Camera</button>
+</div>
+<div id="plist"></div>
 </div>
 <div id="ov" onclick="closeAll()"></div>
 <div id="imodal">
@@ -346,22 +348,6 @@ function togMic(){
   document.getElementById('bmic').classList.toggle('off',!micOn);
   const m=document.getElementById('mb-local');if(m)m.style.display=micOn?'none':'flex';
 }
-  async function flipCam(){
-  if(!ls)return;
-  try{
-    const cur=ls.getVideoTracks()[0];
-    const facing=cur?cur.getSettings().facingMode:'user';
-    const newFace=facing==='user'?'environment':'user';
-    const ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:newFace},audio:false});
-    const nt=ns.getVideoTracks()[0];
-    ls.getVideoTracks().forEach(t=>t.stop());
-    peers.forEach(p=>{if(p.call&&p.call.peerConnection){const s=p.call.peerConnection.getSenders().find(s=>s.track&&s.track.kind==='video');if(s)s.replaceTrack(nt);}});
-    const old=ls.getVideoTracks()[0];if(old)ls.removeTrack(old);
-    ls.addTrack(nt);
-    const t=tiles.get('local');if(t)t.querySelector('video').srcObject=ls;
-    toast('Camera flipped');
-  }catch(e){toast('Flip failed');}
-  }
 async function togCam(){
   if(!ls)return;
   if(scrOn){
